@@ -14,4 +14,7 @@
 
 ### Setup port 
 - edit pom.xml file in <properties> section <port> in case it need to change 
-default application port.
+default application port. 
+
+### To see the application in browser with default configuration.
+- Navigate to http://localhost:82
