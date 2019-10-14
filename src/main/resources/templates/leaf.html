@@ -1,0 +1,143 @@
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<!DOCTYPE html>
+<html>
+<head>
+    <title>OpenSky Single Map View</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.0/css/bootstrap.min.css">
+    <script src="http://www.openlayers.org/api/OpenLayers.js"></script>
+    <script src="https://code.jquery.com/jquery-3.4.1.min.js" integrity="sha256-CSXorXvZcTkaix6Yvo6HppcZGetbYMGWSFlBw8HfCJo="
+            crossorigin="anonymous"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.0/js/bootstrap.min.js"></script>
+    <script src="https://canvasjs.com/assets/script/canvasjs.min.js"></script>
+    <script src="charts.js"></script>
+
+</head>
+<style>
+    #map {
+        width: 1112px;
+        height: 456px;
+    }
+</style>
+<body>
+
+<div id="map" style="top: 0; left: 0; bottom: 0; right: 0; position: fixed;"></div>
+<div id="chartContainer" style="height: 370px; max-width: 920px; margin: 0px auto;position: relative; top:550px;"></div>
+<div id="msg" style="position: relative; right:200px "> Something Happend </div>
+
+<div class="form-group blu-margin" style="position: relative; top:83px">
+    <h4 id="message" style="display: none"> Please wait .... </h4>
+    <div class="selectionBox">
+        <h4> Please Select a flight.</h4>
+        <select class="form-control" id="dropOperator" onchange="getFlightLiveView(this.value)" style="width: 100px;">
+            <option value="0">Select a flight ..</option>
+            <option th:each="operator : ${flightsList}" th:value="${operator}" th:text="${operator}"></option>
+        </select>
+    </div>
+    <span id="flights-status" style="position: relative;top: 187px;right:2px; ">
+        <a class="btn btn-primary" href="/showAllData" role="button"> Show Multiple Flights </a>
+    </span>
+</div>
+
+
+</body>
+</html>
+
+<script>
+    var mapnik         = new OpenLayers.Layer.OSM(); // OpenStreetMap
+    var fromProjection = new OpenLayers.Projection("EPSG:4326");   // Transform from WGS 1984
+    var toProjection   = new OpenLayers.Projection("EPSG:900913"); // to Spherical Mercator Projection
+    var position;
+    var zoom           = 6;
+    var map;
+    var markers        = new OpenLayers.Layer.Markers( "Markers" );
+    var start_point;
+    var vector;
+    var checkIfCoordinateArrayNotEmpty = false;
+    var size = new OpenLayers.Size(21,25);
+    var offset = new OpenLayers.Pixel(-(size.w/3), -size.h);
+    var icon = new OpenLayers.Icon('https://img.icons8.com/material-rounded/64/000000/paper-plane.png', size, offset);
+    var style = new OpenLayers.Style();
+    var vectorNew;
+    var flight;
+
+    var velocityData = [];
+    var velocityPick = [];
+    var mph = [];
+    var index = 0;
+    var flight_changed = 0;
+
+    function fetchData(flightNumber) {
+        $.ajax({
+            type: "POST",
+            url: "/getData",
+            dataType: "json",
+            data: {"flight" : flight},
+            success: function(data) {
+                if(data[0][0] !== undefined) {
+                    if (!checkIfCoordinateArrayNotEmpty) {
+                        checkIfCoordinateArrayNotEmpty = true;
+                        init(data[0][0], data[0][1]);
+                    } else {
+                        update_line(data[0][0], data[0][1]);
+                        velocityData.push({x: index, y: data[0][2]});
+                        velocityPick.push({x: index, y: data[0][3]});
+                        mph.push({x: index, y: ((data[0][2] * 3600) / 1000)});
+                        if(mph.length > 1) {
+                            loadMap(velocityData, velocityPick, mph, flightNumber + " Flight Status", "Altitude Data");
+                            $("#message").hide();
+                        }
+                        index++;
+                    }
+                }
+            }
+        });
+        setTimeout(function () {
+            fetchData(flight);
+        }, 10000);
+    }
+
+    function init(longitude, lattitude) {
+        map = new OpenLayers.Map("map");
+        map.addLayer(mapnik);
+        map.addLayer(markers);
+        position = new OpenLayers.LonLat(longitude, lattitude).transform( fromProjection, toProjection);
+        start_point = new OpenLayers.Geometry.Point(longitude, lattitude).transform( fromProjection, toProjection);
+        vector = new OpenLayers.Layer.Vector();
+
+        markers.addMarker(new OpenLayers.Marker(new OpenLayers.LonLat(longitude,lattitude)
+            .transform( fromProjection, toProjection),icon));
+        map.addLayers([vector]);
+        map.setCenter(position, zoom );
+        $("#message").text("Loading Chart ...");
+    }
+
+
+    function update_line(newLon, newLat) {
+        var end_point1 = new OpenLayers.Geometry.Point(newLon, newLat).transform( fromProjection, toProjection);
+        var new_point = new OpenLayers.Geometry.Point(newLon, newLat).transform( fromProjection, toProjection);
+        var myFirstLineStyle = OpenLayers.Util.applyDefaults(style, OpenLayers.Feature.Vector.style['default']);
+
+        vectorNew = new OpenLayers.Feature.Vector(new OpenLayers.Geometry.LineString([new_point, end_point1]));
+        myFirstLineStyle.strokeColor = "#ff0000";
+        myFirstLineStyle.strokeWidth = 6;
+        myFirstLineStyle.fillColor = "#ff0000";
+        myFirstLineStyle.fillWidh = 3;
+
+        markers.addMarker(new OpenLayers.Marker(new OpenLayers.LonLat(newLon, newLat)
+            .transform( fromProjection, toProjection),icon));
+        vectorNew.style = myFirstLineStyle;
+        vector.addFeatures(vectorNew);
+    }
+
+    function getFlightLiveView(flightNumber) {
+        $(".selectionBox").hide();
+        $("#message").show();
+        if(flight_changed === 1) {
+            flight_changed = 0;
+        }
+        flight_changed++;
+        flight = flightNumber;
+        fetchData();
+    }
+</script>

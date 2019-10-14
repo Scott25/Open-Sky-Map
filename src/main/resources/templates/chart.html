@@ -1,0 +1,174 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+    <title>OpenSky Multiple Map View</title>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.0/css/bootstrap.min.css">
+    <script src="https://code.jquery.com/jquery-3.4.1.min.js"
+            integrity="sha256-CSXorXvZcTkaix6Yvo6HppcZGetbYMGWSFlBw8HfCJo="
+            crossorigin="anonymous"></script>
+    <script src="https://canvasjs.com/assets/script/canvasjs.min.js"></script>
+    <script src="http://www.openlayers.org/api/OpenLayers.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.0/js/bootstrap.min.js"></script>
+    <script src="charts.js"></script>
+
+    <style>
+        #map {
+            width: 1312px;
+            height: 540px;
+        }
+    </style>
+</head>
+
+<body>
+    <h2 id="wait-msg"> Please Wait... </h2>
+    <div id="map" style="top: 0; left: 0; bottom: 0; right: 0; position: fixed;"></div>
+    <div id="chartContainer" style="height: 370px; max-width: 920px; margin: 0px auto; position: relative; top: 580px;">
+    </div>
+    <span id="single-flight-status" style="position: relative;top: 187px;right:2px; display: none;">
+        <a class="btn btn-primary" href="/singleFlight" role="button"> Single Flight Status </a>
+    </span>
+    <h2 id="chart-msg" style="display: none"> Chart is Loading. Please Wait... </h2>
+</body>
+</html>
+
+<script>
+    var mapnik         = new OpenLayers.Layer.OSM(); // OpenStreetMap
+    var fromProjection = new OpenLayers.Projection("EPSG:4326");   // Transform from WGS 1984
+    var toProjection   = new OpenLayers.Projection("EPSG:900913"); // to Spherical Mercator Projection
+    var position;
+    var zoom           = -8;
+    var map;
+    var markers = new OpenLayers.Layer.Markers( "Markers" );
+    var line;
+    var vector;
+    var size = new OpenLayers.Size(21,25);
+    var offset = new OpenLayers.Pixel(-(size.w/3), -size.h);
+    var icon1 = new OpenLayers.Icon('https://img.icons8.com/material-rounded/64/000000/paper-plane.png', size, offset);
+    var center = false;
+    var init_data = false;
+    var main_data = [];
+    var numberOfNodes = 0;
+
+    fetchData();
+    function fetchData() {
+        $.ajax({
+            type: "GET",
+            url: "/allData",
+            dataType: "json",
+            success: function(data) {
+                if(!init_data) {
+                    buildDat(data);
+                    initMap(data);
+                    init_data = true;
+                } else {
+                    updateDataPoints(data);
+                }
+            }
+        });
+        setTimeout(function () {
+            fetchData();
+        }, 10000);
+    }
+
+    function buildDat(data) {
+        for(var i=0; data.length > i; i++) {
+            if(data[i][0] != "") {
+                main_data.push({
+                    type: "line",
+                    showInLegend: true,
+                    name: data[i][0],
+                    markerType: "dash",
+                    color: data[i][5],
+                    dataPoints: [{x: 0, y:parseFloat(data[i][1])}]
+                });
+            }
+        }
+        $("#single-flight-status").show();
+    }
+    
+    function updateDataPoints(data) {
+        numberOfNodes++;
+        for(var i = 0; data.length > i; i++) {
+            if(data[i][0] != "") {
+                main_data[i].dataPoints.push({x: numberOfNodes, y:parseFloat(data[i][1])});
+            }
+        }
+        loadChart(main_data);
+    }
+
+    function loadChart(dataPoints) {
+        $("#wait-msg").hide();
+        $("#chart-msg").hide();
+        var chart = new CanvasJS.Chart("chartContainer", {
+            animationEnabled: true,
+            theme: "light2",
+            title:{
+                text: "Flights Velocity"
+            },
+            axisX:{
+                valueFormatString: "",
+                crosshair: {
+                    enabled: false,
+                    snapToDataPoint: true
+                }
+            },
+            axisY: {
+                title: "Velocity m/s",
+                crosshair: {
+                    enabled: true
+                }
+            },
+            toolTip:{
+                shared:true
+            },
+            legend:{
+                cursor:"pointer",
+                verticalAlign: "bottom",
+                horizontalAlign: "left",
+                dockInsidePlotArea: true,
+                itemclick: toogleDataSeries
+            },
+            data: dataPoints
+        });
+        chart.render();
+
+        function toogleDataSeries(e){
+            if(typeof(e.dataSeries.visible) === "undefined" || e.dataSeries.visible) {
+                e.dataSeries.visible = false;
+            } else{
+                e.dataSeries.visible = true;
+            }
+            chart.render();
+        }
+    }
+
+    function initMap(data) {
+        map = new OpenLayers.Map("map");
+        map.addLayer(mapnik);
+        for(var i=0; data.length > i; i++) {
+            icon1 = new OpenLayers.Icon('https://img.icons8.com/material-rounded/64/000000/paper-plane.png', size, offset);
+            vector = new OpenLayers.Layer.Vector();
+            position = new OpenLayers.LonLat(parseFloat(data[i][3]),parseFloat(data[i][4])).transform( fromProjection, toProjection);
+            markers.addMarker(new OpenLayers.Marker(new OpenLayers.LonLat(parseFloat(data[i][3]),parseFloat(data[i][4]))
+                .transform( fromProjection, toProjection), icon1));
+            map.addLayer(markers);
+            map.addLayers(vector);
+        }
+        $("#chart-msg").show();
+        if(!center) {
+            map.setCenter(position, zoom );
+            center = true;
+        }
+    }
+
+    function updateMap(data) {
+        for(var i=0; data.length > i; i++) {
+            var ico = new OpenLayers.Icon('https://img.icons8.com/material-rounded/64/000000/paper-plane.png', size, offset);
+            position = new OpenLayers.LonLat(parseFloat(data[i][3]), parseFloat(data[i][4])).transform( fromProjection, toProjection);
+            markers.addMarker(new OpenLayers.Marker(new OpenLayers.LonLat(parseFloat(data[i][3]),parseFloat(data[i][4]))
+                .transform( fromProjection, toProjection), ico));
+            map.addLayer(markers);
+            //map.addLayers(vector);
+        }
+    }
+</script>
